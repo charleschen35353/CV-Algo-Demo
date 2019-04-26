@@ -22,6 +22,8 @@ logger = logging.getLogger()
 _img_original = None
 _img_preview = None
 
+win = None
+
 # constants
 THUMB_BORDER_COLOR_ACTIVE = "#3893F4"
 THUMB_BORDER_COLOR = "#ccc"
@@ -32,6 +34,24 @@ THUMB_SIZE = 120
 SLIDER_MIN_VAL = -100
 SLIDER_MAX_VAL = 100
 SLIDER_DEF_VAL = 0
+
+PARA1_MIN_VAL = 5
+PARA1_MAX_VAL = 99
+PARA1_DEF_VAL = 9
+
+PARA2_MIN_VAL = 1
+PARA2_MAX_VAL = 10
+PARA2_DEF_VAL = 1
+
+
+PARA3_MIN_VAL = 1
+PARA3_MAX_VAL = 10
+PARA3_DEF_VAL = 1
+
+
+
+
+
 
 
 class Operations:
@@ -140,15 +160,123 @@ class ActionTabs(QTabWidget):
         self.adjustment_tab = AdjustingTab(self)
         self.modification_tab = ModificationTab(self)
         self.rotation_tab = RotationTab(self)
+        self.inpainting_tab = InpaintingTab(self)
 
         self.addTab(self.filters_tab, "Filters")
         self.addTab(self.adjustment_tab, "Adjusting")
         self.addTab(self.modification_tab, "Modification")
         self.addTab(self.rotation_tab, "Rotation")
+        self.addTab(self.inpainting_tab, "Inpainting")
 
         self.setMaximumHeight(190)
 
 
+        
+class InpaintingTab(QWidget):
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+
+
+        '''
+        self.para1_box = QLineEdit(self)
+        self.para1_box.textEdited.connect(self.on_para1_change)
+        self.para1_box.setMaximumWidth(90)
+
+        self.para2_box = QLineEdit(self)
+        self.para2_box.textEdited.connect(self.on_para2_change)
+        self.para2_box.setMaximumWidth(90)
+
+        self.para3_box = QLineEdit(self)
+        self.para3_box.textEdited.connect(self.on_para3_change)
+        self.para3_box.setMaximumWidth(90)
+        '''
+        self.para1_slider = QSlider(Qt.Horizontal, self)
+        self.para1_slider.setMinimum(PARA1_MIN_VAL)
+        self.para1_slider.setMaximum(PARA1_MAX_VAL)
+        self.para1_slider.sliderReleased.connect(self.on_para1_change)
+
+
+        self.para2_slider = QSlider(Qt.Horizontal, self)
+        self.para2_slider.setMinimum(PARA2_MIN_VAL)
+        self.para2_slider.setMaximum(PARA2_MAX_VAL)
+        self.para2_slider.sliderReleased.connect(self.on_para2_change)
+
+
+        self.para3_slider = QSlider(Qt.Horizontal, self)
+        self.para3_slider.setMinimum(PARA3_MIN_VAL)
+        self.para3_slider.setMaximum(PARA3_MAX_VAL)
+        self.para3_slider.sliderReleased.connect(self.on_para3_change)    
+
+        self.para1_lbl = QLabel(str(self.para1_slider.value()), self)
+        self.para1_lbl.setFixedWidth(90)
+
+        self.para2_lbl = QLabel(str(self.para2_slider.value()), self)
+        self.para2_lbl.setFixedWidth(90)
+
+        self.para3_lbl = QLabel(str(self.para3_slider.value()), self)
+        self.para3_lbl.setFixedWidth(90)
+        
+
+        self.inpainting_btn = QPushButton("Inpainting")
+        self.inpainting_btn.setFixedWidth(90)
+        self.inpainting_btn.clicked.connect(self.inpainting_apply)
+
+        lbl_layout = QHBoxLayout()
+        lbl_layout.setAlignment(Qt.AlignLeft)
+        lbl_layout.addWidget(self.para1_lbl)
+        lbl_layout.addWidget(self.para2_lbl)
+        lbl_layout.addWidget(self.para3_lbl)    
+
+
+        inpainting_layout = QHBoxLayout()
+        inpainting_layout.addWidget(self.inpainting_btn)
+        inpainting_layout.setAlignment(Qt.AlignRight)
+        
+        '''
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(self.para1_box)
+        input_layout.addWidget(self.para2_box)
+        input_layout.addWidget(self.para3_box)
+        '''
+
+        main_layout = QVBoxLayout()
+        main_layout.setAlignment(Qt.AlignCenter)
+
+        main_layout.addWidget(self.para1_lbl)
+        main_layout.addWidget(self.para1_slider)
+
+        main_layout.addWidget(self.para2_lbl)
+        main_layout.addWidget(self.para2_slider)
+
+        main_layout.addWidget(self.para3_lbl)
+        main_layout.addWidget(self.para3_slider)
+        
+        main_layout.addLayout(inpainting_layout)
+
+        self.reset_sliders()
+        self.setLayout(main_layout)
+    def reset_sliders(self):
+        self.para1_slider.setValue(PARA1_DEF_VAL)
+        self.para2_slider.setValue(PARA2_DEF_VAL)
+        self.para3_slider.setValue(PARA3_DEF_VAL)
+    def inpainting_apply(self,e):
+        logger.debug("inpainting, to be continue...")
+
+        print("inpainting!")
+    def on_para1_change(self):
+        print(self.para1_slider.value())
+        self.para1_lbl.setText(str(self.para1_slider.value()))
+
+    def on_para2_change(self):
+        print(self.para2_slider.value())
+        self.para2_lbl.setText(str(self.para2_slider.value()))
+
+    def on_para3_change(self):
+        print(self.para3_slider.value())
+        self.para3_lbl.setText(str(self.para3_slider.value()))
+
+        
 class RotationTab(QWidget):
     """Rotation tab widget"""
 
@@ -233,18 +361,18 @@ class ModificationTab(QWidget):
         self.parent = parent
 
         self.width_lbl = QLabel('width:', self)
-        self.width_lbl.setFixedWidth(100)
+        self.width_lbl.setFixedWidth(90)
 
         self.height_lbl = QLabel('height:', self)
-        self.height_lbl.setFixedWidth(100)
+        self.height_lbl.setFixedWidth(90)
 
         self.width_box = QLineEdit(self)
         self.width_box.textEdited.connect(self.on_width_change)
-        self.width_box.setMaximumWidth(100)
+        self.width_box.setMaximumWidth(90)
 
         self.height_box = QLineEdit(self)
         self.height_box.textEdited.connect(self.on_height_change)
-        self.height_box.setMaximumWidth(100)
+        self.height_box.setMaximumWidth(90)
 
         self.unit_lbl = QLabel("px")
         self.unit_lbl.setMaximumWidth(50)
@@ -260,8 +388,6 @@ class ModificationTab(QWidget):
         self.matting_btn = QPushButton("Matting")
         self.matting_btn.setFixedWidth(90)
         self.matting_btn.clicked.connect(self.matting_apply)
-
-
         
         width_layout = QHBoxLayout()
         width_layout.addWidget(self.width_box)
@@ -276,14 +402,18 @@ class ModificationTab(QWidget):
         matting_layout.addWidget(self.matting_btn)
         matting_layout.setAlignment(Qt.AlignRight)
 
+
+
         lbl_layout = QHBoxLayout()
         lbl_layout.setAlignment(Qt.AlignLeft)
         lbl_layout.addWidget(self.width_lbl)
         lbl_layout.addWidget(self.height_lbl)
 
+
+
         main_layout = QVBoxLayout()
         main_layout.setAlignment(Qt.AlignCenter)
-
+        
         main_layout.addLayout(lbl_layout)
         main_layout.addLayout(width_layout)
         main_layout.addWidget(self.ratio_check)
@@ -325,6 +455,7 @@ class ModificationTab(QWidget):
         logger.debug("matting, to be continue...")
 
         print("matting!")
+	
 
 
 class AdjustingTab(QWidget):
@@ -482,9 +613,10 @@ class MainLayout(QVBoxLayout):
         super().__init__()
         self.parent = parent
 
-        self.img_lbl = QLabel("Press <b>'Upload'</b> to to start<br>"
-                              "<div style='margin: 30px 0'><img src='logo.png' /></div>"
-                              "<b>made with</b> <span style='color:red'>&#10084;</span>")
+        self.img_lbl = QLabel("<b>Welcome!<b>"
+                              "<div style='margin: 30px 0'><img src='HKUST.png' /></div>"
+                              "<b>ZK CYL WWL</b>")
+        # <span style='color:red'>&#10084;</span>
         self.img_lbl.setAlignment(Qt.AlignCenter)
 
         self.file_name = None
@@ -610,6 +742,8 @@ class MainLayout(QVBoxLayout):
             self.save_btn.setEnabled(True)
             self.showOriginal_btn.setEnabled(True)
             self.action_tabs.modification_tab.set_boxes()
+            global win
+            win.setWindowTitle('ACH2 FYP process')
 
     def update_img_size_lbl(self):
         logger.debug("update img size lbl")
@@ -661,7 +795,7 @@ class EasyPzUI(QWidget):
         self.setMinimumSize(600, 500)
         self.setMaximumSize(900, 900)
         self.setGeometry(600, 600, 600, 600)
-        self.setWindowTitle('Easy Peasy - Lemon Squeezy')
+        self.setWindowTitle('ACH2 FYP HOME')
         self.center()
         self.show()
 
