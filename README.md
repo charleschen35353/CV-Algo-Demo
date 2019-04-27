@@ -1,4 +1,4 @@
-# Photo Editor
+# FYP Photo Editor
 
 Implementation of simple photo editor
 
