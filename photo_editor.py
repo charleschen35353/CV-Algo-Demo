@@ -1,27 +1,38 @@
 import sys
 import ntpath
-
+import PyQt5
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import *
-
 from functools import partial
-
 from img_modifier import img_helper
 from img_modifier import color_filter
 from img_modifier import closed_form_matting
-
 from PIL import ImageQt
-
 from logging.config import fileConfig
 import logging
+import numpy as np
+from PIL import Image
+from scipy import misc
+import tensorflow as tf
+import get_dataset_colormap
+
+
+LABEL_NAMES = np.asarray([
+    'background', 'aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus',
+    'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike',
+    'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tv'
+])
+FULL_LABEL_MAP = np.arange(len(LABEL_NAMES)).reshape(len(LABEL_NAMES), 1)
+FULL_COLOR_MAP = get_dataset_colormap.label_to_color_image(FULL_LABEL_MAP)
+
 
 logger = logging.getLogger()
 
 # original img, can't be modified
 _img_original = None
 _img_preview = None
-
+_inpainting_mask = None
 win = None
 
 # constants
@@ -48,10 +59,55 @@ PARA3_MIN_VAL = 1
 PARA3_MAX_VAL = 10
 PARA3_DEF_VAL = 1
 
+IMG_DIS_W = 572
+IMG_DIS_H = 335
 
+class DeepLabModel(object):
+    """Class to load deeplab model and run inference."""
+    INPUT_TENSOR_NAME = 'ImageTensor:0'
+    OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
+    INPUT_SIZE = 513
+    def __init__(self, model_path = './seg_graph.pb'):
+        """Creates and loads pretrained deeplab model."""
+        self.graph = tf.Graph()
+        with open(model_path, 'rb') as fd:
+	        graph_def = tf.GraphDef.FromString(fd.read())
+        with self.graph.as_default():
+            tf.import_graph_def(graph_def, name='')
+        self.sess = tf.Session(graph=self.graph)
+     
+    def run(self, image):
+        """Runs inference on a single image.
+	    Args:
+	        image: A PIL.Image object, raw input image.
+    	Returns:
+    	    resized_image: RGB image resized from original input image.
+    	    seg_map: Segmentation map of `resized_image`.
+        """
+        width, height = image.size
+        resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
+        target_size = (int(resize_ratio * width), int(resize_ratio * height))
+        resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
+        batch_seg_map = self.sess.run(self.OUTPUT_TENSOR_NAME, feed_dict={\
+              self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
+        seg_map = batch_seg_map[0]
+        return resized_image, seg_map
 
+    def get_bimap(self, image, seg_map):
+	    seg_image = get_dataset_colormap.label_to_color_image(seg_map, get_dataset_colormap.get_pascal_name()).astype(np.uint8)
+	    bimap = np.equal(seg_map,0) + 0
+	    unique_labels = np.unique(seg_map)
+	    foregrounds = np.multiply(image, np.expand_dims(1-bimap,axis = 2))
+	    return bimap
 
+def auto_seg():
 
+    model = DeepLabModel()
+    img = _img_preview
+    resized_im, seg_map = model.run(img)
+    bimap = model.get_bimap(resized_im, seg_map)
+    bimap = np.stack((bimap,)*3, axis=-1)
+    return [resized_im, bimap]
 
 
 class Operations:
@@ -102,8 +158,6 @@ def _get_ratio_height(width, height, r_width):
 
 def _get_ratio_width(width, height, r_height):
     return int(r_height/height*width)
-
-
 def _get_converted_point(user_p1, user_p2, p1, p2, x):
     """
     convert user ui slider selected value (x) to PIL value
@@ -125,6 +179,7 @@ def _get_img_with_all_operations():
     s = operations.sharpness
 
     img = _img_preview
+
     if b != 0:
         img = img_helper.brightness(img, b)
 
@@ -160,15 +215,116 @@ class ActionTabs(QTabWidget):
         self.adjustment_tab = AdjustingTab(self)
         self.modification_tab = ModificationTab(self)
         self.rotation_tab = RotationTab(self)
+        self.seg_tab = SegTab(self)
         self.inpainting_tab = InpaintingTab(self)
 
         self.addTab(self.filters_tab, "Filters")
         self.addTab(self.adjustment_tab, "Adjusting")
         self.addTab(self.modification_tab, "Modification")
         self.addTab(self.rotation_tab, "Rotation")
-        self.addTab(self.inpainting_tab, "Inpainting")
-
+        self.addTab(self.seg_tab, "Character Extraction")
+        self.addTab(self.inpainting_tab, "Exemplar Inpainting")
         self.setMaximumHeight(190)
+
+
+
+class SegTab(QWidget):
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+		
+        self.cb_text = QLabel("Select Matting Pen Size:")
+        self.cb = QComboBox()
+        self.cb.addItems(["Small", "Medium", "Large"])
+        self.cb.currentIndexChanged.connect(self.selectionchange)
+        
+        self.matting_color_text = QLabel("Select Matting Pen Color:")
+        self.matting_cbw = QCheckBox('White (Foreground)', self)
+        self.matting_cbw.setChecked(False)
+        self.matting_cbb = QCheckBox('Black (Background)', self)
+        self.matting_cbb.setChecked(False)
+        self.matting_cbw.clicked.connect(self.white_clicked)
+        self.matting_cbb.clicked.connect(self.black_clicked)
+        self.matting_draw_btn = QPushButton("Disable Drawing")
+        self.matting_draw_btn.setFixedWidth(200)
+        self.matting_draw_btn.clicked.connect(self.disable_pen)
+        
+        self.matting_btn = QPushButton("Apply Matting")
+        self.matting_btn.setFixedWidth(200)
+        self.matting_btn.clicked.connect(self.matting_apply)
+        self.matting_btn.setEnabled(False)
+
+        matting_layout = QVBoxLayout()
+        matting_layout.addWidget(self.cb_text)
+        matting_layout.addWidget(self.cb)
+        matting_layout.addWidget(self.matting_color_text)
+        matting_layout.addWidget(self.matting_cbw)
+        matting_layout.addWidget(self.matting_cbb)
+        matting_layout.addWidget(self.matting_draw_btn)
+        matting_layout.addWidget(self.matting_btn)
+        matting_layout.setAlignment(Qt.AlignRight)
+ 
+
+
+
+        self.seg_btn = QPushButton("One-tap Auto Segmentation")
+        self.seg_btn.setFixedWidth(200)
+        self.seg_btn.clicked.connect(self.seg_apply)
+
+        seg_layout = QVBoxLayout()
+        seg_layout.addWidget(self.seg_btn)
+        seg_layout.setAlignment(Qt.AlignRight)
+
+        groupBox_seg = PyQt5.QtWidgets.QGroupBox('Or try automatic segmentation:')
+        groupBox_seg.setLayout(seg_layout)
+        main_layout = QHBoxLayout()
+        main_layout.setAlignment(Qt.AlignCenter)
+        main_layout.addLayout(matting_layout)
+        main_layout.addWidget(groupBox_seg)
+
+        self.setLayout(main_layout)
+    
+    def white_clicked(self):
+        self.parent.parent.drawable = True
+        self.matting_btn.setEnabled(True)
+        self.matting_cbw.setChecked(True)
+        self.matting_cbb.setChecked(False)
+        self.parent.parent.pen_color = 255
+
+    def black_clicked(self):
+        self.parent.parent.drawable = True
+        self.matting_btn.setEnabled(True)
+        self.matting_cbb.setChecked(True)
+        self.matting_cbw.setChecked(False)
+        self.parent.parent.pen_color = 0
+
+    def disable_pen(self):
+        self.parent.parent.drawable = False
+        self.matting_cbw.setChecked(False)
+        self.matting_cbb.setChecked(False)
+          
+    def selectionchange(self,i):
+       if self.cb.currentText() == "Small":
+           print("small!!")
+           self.parent.parent.pen_size = 3
+       elif self.cb.currentText() == "Medium": self.parent.parent.pen_size = 5
+       elif self.cb.currentText() == "Large": self.parent.parent.pen_size = 10
+       else: print("Unknown error appear when selecting pen size")
+   
+    def seg_apply(self, event):  
+        self.seg_btn.setEnabled(False)
+        [img, bimap] = auto_seg()	
+        np_img = np.array(img)
+        seg_output = np_img * bimap
+        global _img_preview
+        _img_preview = Image.fromarray(np.uint8(seg_output)).resize((_img_original.width,_img_original.height))
+        self.parent.parent.place_preview_img()
+        logger.debug("Auto Segmentation")
+        _inpainting_mask = bimap
+
+    def matting_apply(self, event):  
+        logger.debug("Matting")
+        
 
 
         
@@ -177,20 +333,6 @@ class InpaintingTab(QWidget):
         super().__init__()
         self.parent = parent
 
-
-        '''
-        self.para1_box = QLineEdit(self)
-        self.para1_box.textEdited.connect(self.on_para1_change)
-        self.para1_box.setMaximumWidth(90)
-
-        self.para2_box = QLineEdit(self)
-        self.para2_box.textEdited.connect(self.on_para2_change)
-        self.para2_box.setMaximumWidth(90)
-
-        self.para3_box = QLineEdit(self)
-        self.para3_box.textEdited.connect(self.on_para3_change)
-        self.para3_box.setMaximumWidth(90)
-        '''
         self.para1_slider = QSlider(Qt.Horizontal, self)
         self.para1_slider.setMinimum(PARA1_MIN_VAL)
         self.para1_slider.setMaximum(PARA1_MAX_VAL)
@@ -222,12 +364,6 @@ class InpaintingTab(QWidget):
         self.inpainting_btn.setFixedWidth(90)
         self.inpainting_btn.clicked.connect(self.inpainting_apply)
 
-        lbl_layout = QHBoxLayout()
-        lbl_layout.setAlignment(Qt.AlignLeft)
-        lbl_layout.addWidget(self.para1_lbl)
-        lbl_layout.addWidget(self.para2_lbl)
-        lbl_layout.addWidget(self.para3_lbl)    
-
 
         inpainting_layout = QHBoxLayout()
         inpainting_layout.addWidget(self.inpainting_btn)
@@ -256,10 +392,12 @@ class InpaintingTab(QWidget):
 
         self.reset_sliders()
         self.setLayout(main_layout)
+
     def reset_sliders(self):
         self.para1_slider.setValue(PARA1_DEF_VAL)
         self.para2_slider.setValue(PARA2_DEF_VAL)
         self.para3_slider.setValue(PARA3_DEF_VAL)
+
     def inpainting_apply(self,e):
         logger.debug("inpainting, to be continue...")
 
@@ -385,9 +523,6 @@ class ModificationTab(QWidget):
         self.apply_btn.clicked.connect(self.on_apply)
 
 
-        self.matting_btn = QPushButton("Matting")
-        self.matting_btn.setFixedWidth(90)
-        self.matting_btn.clicked.connect(self.matting_apply)
         
         width_layout = QHBoxLayout()
         width_layout.addWidget(self.width_box)
@@ -397,10 +532,6 @@ class ModificationTab(QWidget):
         apply_layout = QHBoxLayout()
         apply_layout.addWidget(self.apply_btn)
         apply_layout.setAlignment(Qt.AlignRight)
-
-        matting_layout = QHBoxLayout()
-        matting_layout.addWidget(self.matting_btn)
-        matting_layout.setAlignment(Qt.AlignRight)
 
 
 
@@ -418,7 +549,6 @@ class ModificationTab(QWidget):
         main_layout.addLayout(width_layout)
         main_layout.addWidget(self.ratio_check)
         main_layout.addLayout(apply_layout)
-        main_layout.addLayout(matting_layout)
 
         self.setLayout(main_layout)
 
@@ -605,20 +735,58 @@ class FiltersTab(QWidget):
             color = THUMB_BORDER_COLOR_ACTIVE if thumb.name == operations.color_filter else THUMB_BORDER_COLOR
             thumb.setStyleSheet(f"border:2px solid {color};")
 
+class PaintableLabel(QLabel):
+    def __init__(self, parent):
+        super(PaintableLabel, self).__init__()
+        self.setMouseTracking(True)
+        self.ok_to_paint = False
+        self.parent = parent
+        self.PAINT_SIZE = 3
+
+    def paint(self, img_np, x, y):  
+        w = _img_preview.width
+        h = _img_preview.height
+        x = int(x * w/IMG_DIS_W)
+        y = int(y * h/IMG_DIS_H)
+        self.PAINT_SIZE = int(self.parent.pen_size* ( w/IMG_DIS_W + h/IMG_DIS_H )/2)
+        if x > self.PAINT_SIZE and x < img_np.shape[1] -self.PAINT_SIZE and y > self.PAINT_SIZE and y < img_np.shape[0] - self.PAINT_SIZE: 
+            img_np[y-self.PAINT_SIZE:y+self.PAINT_SIZE, x-self.PAINT_SIZE:x+self.PAINT_SIZE,:] = self.parent.pen_color 
+       	return img_np
+    
+    def mouseMoveEvent(self, event):
+        if self.ok_to_paint:
+            global _img_preview
+            img = _img_preview
+            img = np.array(img)
+            img = self.paint(img, event.pos().x(), event.pos().y())
+            _img_preview = Image.fromarray(np.uint8(img))
+            self.parent.place_preview_img()
+
+    def mousePressEvent(self, event):
+        print(event.pos().x(), event.pos().y())
+        if self.parent.drawable:
+            self.ok_to_paint = True    
+	
+    def mouseReleaseEvent(self, event):
+        self.ok_to_paint = False
 
 class MainLayout(QVBoxLayout):
     """Main layout"""
 
     def __init__(self, parent):
-        super().__init__()
+        super().__init__()  
         self.parent = parent
+        self.drawable = False
+        self.pen_color = 0
+        self.pen_size = 3
+        self.img_lbl = PaintableLabel(self)
 
-        self.img_lbl = QLabel("<b>Welcome!<b>"
+        self.img_lbl.setFixedWidth(IMG_DIS_W)
+        self.img_lbl.setFixedHeight(IMG_DIS_H)
+        self.img_lbl.setText("<b>Image Editor @ ACH2 <b>"
                               "<div style='margin: 30px 0'><img src='HKUST.png' /></div>"
-                              "<b>ZK CYL WWL</b>")
-        # <span style='color:red'>&#10084;</span>
+                              "<b>GUI Credits: ZENG Kuang, CHEN Liang-yu, WANG WenLong</b>")
         self.img_lbl.setAlignment(Qt.AlignCenter)
-
         self.file_name = None
 
         self.img_size_lbl = None
@@ -674,7 +842,6 @@ class MainLayout(QVBoxLayout):
 
     def place_preview_img(self):
         img = _get_img_with_all_operations()
-
         preview_pix = ImageQt.toqpixmap(img)
         self.img_lbl.setPixmap(preview_pix)
 
@@ -682,6 +849,7 @@ class MainLayout(QVBoxLayout):
         img = _img_original
         original_pix = ImageQt.toqpixmap(img)
         self.img_lbl.setPixmap(original_pix)
+    
 
     def on_save(self):
         logger.debug("open save dialog")
@@ -708,9 +876,9 @@ class MainLayout(QVBoxLayout):
 
             pix = QPixmap(img_path)
             self.img_lbl.setPixmap(pix)
-            self.img_lbl.setScaledContents(True)
             self.action_tabs.setVisible(True)
             self.action_tabs.adjustment_tab.reset_sliders()
+            self.img_lbl.setScaledContents(True)
 
             global _img_original
             _img_original = ImageQt.fromqpixmap(pix)
@@ -723,7 +891,10 @@ class MainLayout(QVBoxLayout):
             else:
                 h = THUMB_SIZE
                 w = _get_ratio_width(_img_original.width, _img_original.height, h)
-
+			
+            #if _img_original.width > self.img_lbl.width() or _img_original.height > self.img_lbl.height():
+            #    self.img_lbl.setScaledContents(True)
+		
             img_filter_thumb = img_helper.resize(_img_original, w, h)
 
             global _img_preview
@@ -765,7 +936,9 @@ class MainLayout(QVBoxLayout):
         self.place_preview_img()
         self.action_tabs.adjustment_tab.reset_sliders()
         self.action_tabs.modification_tab.set_boxes()
+        self.action_tabs.seg_tab.seg_btn.setEnabled(True)
         self.update_img_size_lbl()
+
 
     def on_showOriginal(self):
         logger.debug("show Original image")
