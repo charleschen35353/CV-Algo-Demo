@@ -34,3 +34,6 @@ to install all packages use **pip3 install -r requirements.txt**
 windows version:
 
 ![ScreenShot](https://github.com/shkolovy/simple-photo-editor/blob/master/win-version.png)
+
+
+seg_graph.pb can be found here: https://hkustconnect-my.sharepoint.com/personal/lchenbg_connect_ust_hk/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Flchenbg_connect_ust_hk%2FDocuments%2FAttachments%2Fseg_graph%2Epb&parent=%2Fpersonal%2Flchenbg_connect_ust_hk%2FDocuments%2FAttachments 
