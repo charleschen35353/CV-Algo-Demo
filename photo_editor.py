@@ -16,6 +16,7 @@ from PIL import Image
 from scipy import misc
 import tensorflow as tf
 import get_dataset_colormap
+from inpainter import Inpainter
 
 
 LABEL_NAMES = np.asarray([
@@ -32,7 +33,7 @@ logger = logging.getLogger()
 # original img, can't be modified
 _img_original = None
 _img_preview = None
-_inpainting_mask = None
+_bimap = None #2D, 0 be background 1 be foregrounds
 win = None
 
 # constants
@@ -106,7 +107,6 @@ def auto_seg():
     img = _img_preview
     resized_im, seg_map = model.run(img)
     bimap = model.get_bimap(resized_im, seg_map)
-    bimap = np.stack((bimap,)*3, axis=-1)
     return [resized_im, bimap]
 
 
@@ -155,7 +155,6 @@ operations = Operations()
 def _get_ratio_height(width, height, r_width):
     return int(r_width/width*height)
 
-
 def _get_ratio_width(width, height, r_height):
     return int(r_height/height*width)
 def _get_converted_point(user_p1, user_p2, p1, p2, x):
@@ -166,7 +165,6 @@ def _get_converted_point(user_p1, user_p2, p1, p2, x):
      - user selected 50
      - PIL value is 1.25
     """
-
     r = (x - user_p1) / (user_p2 - user_p1)
     return p1 + r * (p2 - p1)
 
@@ -314,13 +312,16 @@ class SegTab(QWidget):
     def seg_apply(self, event):  
         self.seg_btn.setEnabled(False)
         [img, bimap] = auto_seg()	
+        global _bimap
+        _bimap = bimap
         np_img = np.array(img)
-        seg_output = np_img * bimap
+        mask = np.stack((bimap,)*3, axis=-1)
+        seg_output = np_img * mask
         global _img_preview
-        _img_preview = Image.fromarray(np.uint8(seg_output)).resize((_img_original.width,_img_original.height))
+        _img_preview = Image.fromarray(np.uint8(seg_output))#.resize((_img_original.width,_img_original.height))
         self.parent.parent.place_preview_img()
         logger.debug("Auto Segmentation")
-        _inpainting_mask = bimap
+
 
     def matting_apply(self, event):  
         logger.debug("Matting")
@@ -343,21 +344,13 @@ class InpaintingTab(QWidget):
         self.para2_slider.setMinimum(PARA2_MIN_VAL)
         self.para2_slider.setMaximum(PARA2_MAX_VAL)
         self.para2_slider.sliderReleased.connect(self.on_para2_change)
-
-
-        self.para3_slider = QSlider(Qt.Horizontal, self)
-        self.para3_slider.setMinimum(PARA3_MIN_VAL)
-        self.para3_slider.setMaximum(PARA3_MAX_VAL)
-        self.para3_slider.sliderReleased.connect(self.on_para3_change)    
+   
 
         self.para1_lbl = QLabel(str(self.para1_slider.value()), self)
         self.para1_lbl.setFixedWidth(90)
 
         self.para2_lbl = QLabel(str(self.para2_slider.value()), self)
         self.para2_lbl.setFixedWidth(90)
-
-        self.para3_lbl = QLabel(str(self.para3_slider.value()), self)
-        self.para3_lbl.setFixedWidth(90)
         
 
         self.inpainting_btn = QPushButton("Inpainting")
@@ -369,13 +362,6 @@ class InpaintingTab(QWidget):
         inpainting_layout.addWidget(self.inpainting_btn)
         inpainting_layout.setAlignment(Qt.AlignRight)
         
-        '''
-        input_layout = QHBoxLayout()
-        input_layout.addWidget(self.para1_box)
-        input_layout.addWidget(self.para2_box)
-        input_layout.addWidget(self.para3_box)
-        '''
-
         main_layout = QVBoxLayout()
         main_layout.setAlignment(Qt.AlignCenter)
 
@@ -384,9 +370,6 @@ class InpaintingTab(QWidget):
 
         main_layout.addWidget(self.para2_lbl)
         main_layout.addWidget(self.para2_slider)
-
-        main_layout.addWidget(self.para3_lbl)
-        main_layout.addWidget(self.para3_slider)
         
         main_layout.addLayout(inpainting_layout)
 
@@ -396,12 +379,18 @@ class InpaintingTab(QWidget):
     def reset_sliders(self):
         self.para1_slider.setValue(PARA1_DEF_VAL)
         self.para2_slider.setValue(PARA2_DEF_VAL)
-        self.para3_slider.setValue(PARA3_DEF_VAL)
 
     def inpainting_apply(self,e):
-        logger.debug("inpainting, to be continue...")
+        logger.debug("inpainting")
+        global _img_preview
+        img = _img_preview
+        image = np.array(img)
+        bimap = _bimap 
+        
+        output_image = Inpainter(image, bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint()
+        _img_preview = Image.fromarray(np.uint8(output_image))       
+        self.parent.parent.place_preview_img()
 
-        print("inpainting!")
     def on_para1_change(self):
         print(self.para1_slider.value())
         self.para1_lbl.setText(str(self.para1_slider.value()))
@@ -410,9 +399,6 @@ class InpaintingTab(QWidget):
         print(self.para2_slider.value())
         self.para2_lbl.setText(str(self.para2_slider.value()))
 
-    def on_para3_change(self):
-        print(self.para3_slider.value())
-        self.para3_lbl.setText(str(self.para3_slider.value()))
 
         
 class RotationTab(QWidget):
@@ -892,7 +878,7 @@ class MainLayout(QVBoxLayout):
                 h = THUMB_SIZE
                 w = _get_ratio_width(_img_original.width, _img_original.height, h)
 			
-            #if _img_original.width > self.img_lbl.width() or _img_original.height > self.img_lbl.height():
+            # if _img_original.width > self.img_lbl.width() or _img_original.height > self.img_lbl.height():
             #    self.img_lbl.setScaledContents(True)
 		
             img_filter_thumb = img_helper.resize(_img_original, w, h)
