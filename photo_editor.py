@@ -8,6 +8,7 @@ from functools import partial
 from img_modifier import img_helper
 from img_modifier import color_filter
 from img_modifier import closed_form_matting
+from img_modifier import solve_foreground_background
 from PIL import ImageQt
 from logging.config import fileConfig
 import logging
@@ -324,7 +325,23 @@ class SegTab(QWidget):
 
     def matting_apply(self, event):  
         logger.debug("Matting")
-        
+        global _img_original, _img_preview
+        original_image = np.array(_img_original)/255.0
+        preview_image = np.array(_img_preview)/255.0
+
+        alpha = closed_form_matting.closed_form_matting_with_scribbles(original_image,preview_image)
+        #alpha = closed_form_matting.closed_form_matting_with_scribbles(_img_original,_img_preview)
+
+        foreground, background = solve_foreground_background.solve_foreground_background(np.array(_img_original),alpha)
+        alpha = alpha*255
+        _img_preview = Image.fromarray(np.uint8(background))
+        self.parent.parent.place_preview_img()
+        '''
+        for row in alpha:
+            for ele in row:
+                print(ele)
+        '''
+        print("alpha created")
 
 
         
@@ -585,6 +602,7 @@ class ModificationTab(QWidget):
         logger.debug("matting, to be continue...")
 
         print("matting!")
+
 	
 
 
