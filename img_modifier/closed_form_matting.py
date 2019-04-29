@@ -136,6 +136,7 @@ def closed_form_matting_with_prior(image, prior, prior_confidence, consts_map=No
         prior.ravel() * prior_confidence.ravel()
     )
     alpha = np.minimum(np.maximum(solution.reshape(prior.shape), 0), 1)
+
     return alpha
 
 

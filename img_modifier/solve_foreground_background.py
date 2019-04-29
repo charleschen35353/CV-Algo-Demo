@@ -60,6 +60,7 @@ def get_grad_operator(mask):
 def get_original_background(image, alpha):
     falpha = alpha.flatten()
     weights = falpha < 0.4
+    #weights = falpha
     background = weights[:, np.newaxis] * image.reshape((alpha.size, -1))
     return background
 
