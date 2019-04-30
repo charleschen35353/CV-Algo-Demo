@@ -17,7 +17,8 @@ from PIL import Image
 from scipy import misc
 import tensorflow as tf
 import get_dataset_colormap
-from inpainter import Inpainter
+from inpainter import inpainter
+import cv2
 
 
 LABEL_NAMES = np.asarray([
@@ -34,7 +35,6 @@ logger = logging.getLogger()
 # original img, can't be modified
 _img_original = None
 _img_preview = None
-_img_filter = None
 _bimap = None #2D, 0 be background 1 be foregrounds
 win = None
 
@@ -50,31 +50,54 @@ SLIDER_MAX_VAL = 100
 SLIDER_DEF_VAL = 0
 
 PARA1_MIN_VAL = 5
-PARA1_MAX_VAL = 99
+PARA1_MAX_VAL = 50
 PARA1_DEF_VAL = 9
 
 PARA2_MIN_VAL = 1
 PARA2_MAX_VAL = 10
 PARA2_DEF_VAL = 1
 
-
-PARA3_MIN_VAL = 1
-PARA3_MAX_VAL = 10
-PARA3_DEF_VAL = 1
-
 IMG_DIS_W = 572
 IMG_DIS_H = 335
 
+
+class DeepInpaintingNet(object):
+    def __init__(self, model_path = './models/ref_graph.pb'):
+        """Creates and loads pretrained deeplab model."""
+        self.graph = tf.Graph()
+        with open(model_path, 'rb') as fd:
+            graph_def = tf.GraphDef.FromString(fd.read())
+        with self.graph.as_default():
+            tf.import_graph_def(graph_def, name='')
+        self.sess = tf.Session(graph=self.graph)
+
+        self.x = "input:0"
+        self.mask = "mask:0"	
+        self.y = "gan/output:0"
+
+    def run(self, x, mask):
+        print(x.shape)
+        print(mask.shape)
+        assert(len(x.shape) == 3)
+        assert(len(mask.shape) == 3 )
+        assert(x.shape == mask.shape)
+        x_in = np.expand_dims(cv2.resize(x.astype(np.float32),(256,256), interpolation=cv2.INTER_CUBIC),axis = 0 )/255
+        mask_in =  np.expand_dims(cv2.resize(mask.astype(np.float32),(256,256)),axis = 0 )
+        #global _img_original
+        #_img_original = Image.fromarray(np.uint8(np.squeeze(mask_in)*255)) 
+        result = self.sess.run(self.y, feed_dict={self.x:x_in, self.mask:mask_in})
+        return result
+	
 class DeepLabModel(object):
     """Class to load deeplab model and run inference."""
     INPUT_TENSOR_NAME = 'ImageTensor:0'
     OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
-    INPUT_SIZE = 513
-    def __init__(self, model_path = './seg_graph.pb'):
+    INPUT_SIZE = 256
+    def __init__(self, model_path = './models/seg_graph.pb'):
         """Creates and loads pretrained deeplab model."""
         self.graph = tf.Graph()
         with open(model_path, 'rb') as fd:
-	        graph_def = tf.GraphDef.FromString(fd.read())
+            graph_def = tf.GraphDef.FromString(fd.read())
         with self.graph.as_default():
             tf.import_graph_def(graph_def, name='')
         self.sess = tf.Session(graph=self.graph)
@@ -89,27 +112,22 @@ class DeepLabModel(object):
         """
         width, height = image.size
         resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
-        target_size = (int(resize_ratio * width), int(resize_ratio * height))
+        #target_size = (int(resize_ratio * width), int(resize_ratio * height))
+        target_size = (256,256)
         resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
         batch_seg_map = self.sess.run(self.OUTPUT_TENSOR_NAME, feed_dict={\
               self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
         seg_map = batch_seg_map[0]
         return resized_image, seg_map
 
-    def get_bimap(self, image, seg_map):
-	    seg_image = get_dataset_colormap.label_to_color_image(seg_map, get_dataset_colormap.get_pascal_name()).astype(np.uint8)
-	    bimap = np.equal(seg_map,0) + 0
-	    unique_labels = np.unique(seg_map)
-	    foregrounds = np.multiply(image, np.expand_dims(1-bimap,axis = 2))
-	    return bimap
-
-def auto_seg():
-
-    model = DeepLabModel()
-    img = _img_preview
-    resized_im, seg_map = model.run(img)
-    bimap = model.get_bimap(resized_im, seg_map)
-    return [resized_im, bimap]
+    def get_bimap(self, seg_map, image = None):
+            seg_image = get_dataset_colormap.label_to_color_image(seg_map, get_dataset_colormap.get_pascal_name()).astype(np.uint8)
+            bimap = np.equal(seg_map,0) + 0
+            unique_labels = np.unique(seg_map)
+            if image: 
+                foregrounds = np.multiply(image, np.expand_dims(1-bimap,axis = 2))
+                return [foregrounds,bimap]
+            return bimap
 
 
 class Operations:
@@ -151,6 +169,8 @@ class Operations:
                f"flip-left: {self.flip_left} flip-top: {self.flip_top} rotation: {self.rotation_angle}"
 
 
+_seg_model = DeepLabModel()
+_inpainting_net = DeepInpaintingNet()
 operations = Operations()
 
 
@@ -214,16 +234,14 @@ class ActionTabs(QTabWidget):
         self.filters_tab = FiltersTab(self)
         self.adjustment_tab = AdjustingTab(self)
         self.modification_tab = ModificationTab(self)
-        self.rotation_tab = RotationTab(self)
         self.seg_tab = SegTab(self)
         self.inpainting_tab = InpaintingTab(self)
 
         self.addTab(self.filters_tab, "Filters")
         self.addTab(self.adjustment_tab, "Adjusting")
         self.addTab(self.modification_tab, "Modification")
-        self.addTab(self.rotation_tab, "Rotation")
         self.addTab(self.seg_tab, "Character Extraction")
-        self.addTab(self.inpainting_tab, "Exemplar Inpainting")
+        self.addTab(self.inpainting_tab, "Inpainting")
         self.setMaximumHeight(190)
 
 
@@ -263,9 +281,6 @@ class SegTab(QWidget):
         matting_layout.addWidget(self.matting_draw_btn)
         matting_layout.addWidget(self.matting_btn)
         matting_layout.setAlignment(Qt.AlignRight)
- 
-
-
 
         self.seg_btn = QPushButton("One-tap Auto Segmentation")
         self.seg_btn.setFixedWidth(200)
@@ -310,88 +325,107 @@ class SegTab(QWidget):
        elif self.cb.currentText() == "Medium": self.parent.parent.pen_size = 5
        elif self.cb.currentText() == "Large": self.parent.parent.pen_size = 10
        else: print("Unknown error appear when selecting pen size")
-   
+
+    
     def seg_apply(self, event):  
         self.seg_btn.setEnabled(False)
-        [img, bimap] = auto_seg()	
+        self.parent.parent.parent.setEnabled(False)
+        global _img_preview
+        img = _img_preview
+        img, seg_map = _seg_model.run(img)
+        bimap = _seg_model.get_bimap(seg_map)
         global _bimap
         _bimap = bimap
         np_img = np.array(img)
         mask = np.stack((bimap,)*3, axis=-1)
         seg_output = np_img * mask
-        global _img_preview,_img_filter
         _img_preview = Image.fromarray(np.uint8(seg_output))#.resize((_img_original.width,_img_original.height))
-        _img_filter = _img_preview
         self.parent.parent.place_preview_img()
-        logger.debug("Auto Segmentation")
+        self.parent.inpainting_tab.setEnabled(True)
+        self.parent.parent.parent.setEnabled(True)
+      
 
 
     def matting_apply(self, event):  
-        logger.debug("Matting")
-        global _img_original, _img_preview,_img_filter
+        self.matting_btn.setEnabled(False)
+        global _img_original, _img_preview
         original_image = np.array(_img_original)/255.0
         preview_image = np.array(_img_preview)/255.0
-
+        global _bimap
         alpha = closed_form_matting.closed_form_matting_with_scribbles(original_image,preview_image)
-        #alpha = closed_form_matting.closed_form_matting_with_scribbles(_img_original,_img_preview)
-
-        foreground, background = solve_foreground_background.solve_foreground_background(np.array(_img_original),alpha)
-        alpha = alpha*255
+        foreground, background, _ = solve_foreground_background.solve_foreground_background(np.array(_img_original),alpha)
+        _bimap = (alpha <= 0.4).astype(int)
+        print(_bimap.shape)
         _img_preview = Image.fromarray(np.uint8(background))
-        _img_filter = _img_preview
         self.parent.parent.place_preview_img()
-        '''
-        for row in alpha:
-            for ele in row:
-                print(ele)
-        '''
-        print("alpha created")
+        self.parent.inpainting_tab.setEnabled(True)
+
 
 
         
 class InpaintingTab(QWidget):
     def __init__(self, parent):
         super().__init__()
+        self.setEnabled(False)
         self.parent = parent
 
         self.para1_slider = QSlider(Qt.Horizontal, self)
         self.para1_slider.setMinimum(PARA1_MIN_VAL)
         self.para1_slider.setMaximum(PARA1_MAX_VAL)
         self.para1_slider.sliderReleased.connect(self.on_para1_change)
-
+        self.para1_lbl = QLabel(str(self.para1_slider.value()), self)
+        self.para1_lbl.setFixedWidth(20)
+        self.para1_text = QLabel("Adjust Inpainting Patch Size", self)
+        slider1_layout = QHBoxLayout()
+        slider1_layout.addWidget(self.para1_lbl)
+        slider1_layout.addWidget(self.para1_slider)
+        slider1_layout.setAlignment(Qt.AlignCenter)
+        para1_layout = QVBoxLayout()
+        para1_layout.addWidget(self.para1_text)
+        para1_layout.addLayout(slider1_layout)
 
         self.para2_slider = QSlider(Qt.Horizontal, self)
         self.para2_slider.setMinimum(PARA2_MIN_VAL)
         self.para2_slider.setMaximum(PARA2_MAX_VAL)
         self.para2_slider.sliderReleased.connect(self.on_para2_change)
-   
-
-        self.para1_lbl = QLabel(str(self.para1_slider.value()), self)
-        self.para1_lbl.setFixedWidth(90)
-
         self.para2_lbl = QLabel(str(self.para2_slider.value()), self)
-        self.para2_lbl.setFixedWidth(90)
+        self.para2_lbl.setFixedWidth(20)
+        self.para2_text = QLabel("Adjust Inpainting Smooth Rate ", self)
+        slider2_layout = QHBoxLayout()
+        slider2_layout.addWidget(self.para2_lbl)
+        slider2_layout.addWidget(self.para2_slider)
+        slider2_layout.setAlignment(Qt.AlignCenter)
+        para2_layout = QVBoxLayout()
+        para2_layout.addWidget(self.para2_text)
+        para2_layout.addLayout(slider2_layout)
         
+        self.exemplar_btn = QPushButton("Exemplar Inpainting")
+        self.exemplar_btn.setFixedWidth(180)
+        self.exemplar_btn.clicked.connect(self.exemplar_apply)
 
-        self.inpainting_btn = QPushButton("Inpainting")
-        self.inpainting_btn.setFixedWidth(90)
-        self.inpainting_btn.clicked.connect(self.inpainting_apply)
+        exemplar_layout = QVBoxLayout()
+        exemplar_layout.addLayout(para1_layout)
+        exemplar_layout.addLayout(para2_layout)
+        exemplar_layout.addWidget(self.exemplar_btn)
+        exemplar_layout.setAlignment(Qt.AlignCenter)
 
 
-        inpainting_layout = QHBoxLayout()
-        inpainting_layout.addWidget(self.inpainting_btn)
-        inpainting_layout.setAlignment(Qt.AlignRight)
+        self.ref_btn = QPushButton("Quick Inpainting")
+        self.ref_btn.setFixedWidth(200)
+        self.ref_btn.clicked.connect(self.coarse_to_refine_apply)
+
+        ref_layout = QVBoxLayout()
+        ref_layout.addWidget(self.ref_btn)
+        ref_layout.setAlignment(Qt.AlignRight)
+
+        groupBox_ref = PyQt5.QtWidgets.QGroupBox('Or try quick inpainting:')
+        groupBox_ref.setLayout(ref_layout)
         
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout()
         main_layout.setAlignment(Qt.AlignCenter)
 
-        main_layout.addWidget(self.para1_lbl)
-        main_layout.addWidget(self.para1_slider)
-
-        main_layout.addWidget(self.para2_lbl)
-        main_layout.addWidget(self.para2_slider)
-        
-        main_layout.addLayout(inpainting_layout)
+        main_layout.addLayout(exemplar_layout)
+        main_layout.addWidget(groupBox_ref)
 
         self.reset_sliders()
         self.setLayout(main_layout)
@@ -400,14 +434,14 @@ class InpaintingTab(QWidget):
         self.para1_slider.setValue(PARA1_DEF_VAL)
         self.para2_slider.setValue(PARA2_DEF_VAL)
 
-    def inpainting_apply(self,e):
-        logger.debug("inpainting")
+    def exemplar_apply(self,event):
+        self.exemplar_btn.setEnabled(False)
+        self.ref_btn.setEnabled(False)
         global _img_preview
         img = _img_preview
         image = np.array(img)
         bimap = _bimap 
-        
-        output_image = Inpainter(image, bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint()
+        output_image = inpainter.Inpainter(image, bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint()
         _img_preview = Image.fromarray(np.uint8(output_image))       
         self.parent.parent.place_preview_img()
 
@@ -419,81 +453,25 @@ class InpaintingTab(QWidget):
         print(self.para2_slider.value())
         self.para2_lbl.setText(str(self.para2_slider.value()))
 
+    def coarse_to_refine_apply(self, event):
+        global _img_preview
+        self.exemplar_btn.setEnabled(False)
+        self.ref_btn.setEnabled(False)
+        mask = np.stack((_bimap,)*3, axis=-1)
 
-        
-class RotationTab(QWidget):
-    """Rotation tab widget"""
-
-    def __init__(self, parent):
-        super().__init__()
-        self.parent = parent
-
-        rotate_left_btn = QPushButton("↺ 90°")
-        rotate_left_btn.setMinimumSize(*ROTATION_BTN_SIZE)
-        rotate_left_btn.clicked.connect(self.on_rotate_left)
-
-        rotate_right_btn = QPushButton("↻ 90°")
-        rotate_right_btn.setMinimumSize(*ROTATION_BTN_SIZE)
-        rotate_right_btn.clicked.connect(self.on_rotate_right)
-
-        flip_left_btn = QPushButton("⇆")
-        flip_left_btn.setMinimumSize(*ROTATION_BTN_SIZE)
-        flip_left_btn.clicked.connect(self.on_flip_left)
-
-        flip_top_btn = QPushButton("↑↓")
-        flip_top_btn.setMinimumSize(*ROTATION_BTN_SIZE)
-        flip_top_btn.clicked.connect(self.on_flip_top)
-
-        rotate_lbl = QLabel("Rotate")
-        rotate_lbl.setAlignment(Qt.AlignCenter)
-        rotate_lbl.setFixedWidth(140)
-
-        flip_lbl = QLabel("Flip")
-        flip_lbl.setAlignment(Qt.AlignCenter)
-        flip_lbl.setFixedWidth(140)
-
-        lbl_layout = QHBoxLayout()
-        lbl_layout.setAlignment(Qt.AlignCenter)
-        lbl_layout.addWidget(rotate_lbl)
-        lbl_layout.addWidget(flip_lbl)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.setAlignment(Qt.AlignCenter)
-        btn_layout.addWidget(rotate_left_btn)
-        btn_layout.addWidget(rotate_right_btn)
-        btn_layout.addWidget(QVLine())
-        btn_layout.addWidget(flip_left_btn)
-        btn_layout.addWidget(flip_top_btn)
-
-        main_layout = QVBoxLayout()
-        main_layout.setAlignment(Qt.AlignCenter)
-        main_layout.addLayout(lbl_layout)
-        main_layout.addLayout(btn_layout)
-
-        self.setLayout(main_layout)
-
-    def on_rotate_left(self):
-        logger.debug("rotate left")
-
-        operations.rotation_angle = 0 if operations.rotation_angle == 270 else operations.rotation_angle + 90
-        self.parent.parent.place_preview_img()
-
-    def on_rotate_right(self):
-        logger.debug("rotate left")
-
-        operations.rotation_angle = 0 if operations.rotation_angle == -270 else operations.rotation_angle - 90
-        self.parent.parent.place_preview_img()
-
-    def on_flip_left(self):
-        logger.debug("flip left-right")
-
-        operations.flip_left = not operations.flip_left
-        self.parent.parent.place_preview_img()
-
-    def on_flip_top(self):
-        logger.debug("flip top-bottom")
-
-        operations.flip_top = not operations.flip_top
+        original_shape = mask.shape 
+        img = np.array(_img_preview)
+        print(_bimap.shape)
+        print(mask.shape)
+        print(img.shape)
+        inpainted_img = _inpainting_net.run(img, mask)
+        print(inpainted_img.shape)
+        inpainted_img = np.squeeze(inpainted_img)
+        _img_preview = Image.fromarray(np.uint8(inpainted_img*255)) 
+        #inpainting_img = inpainting_img.resize(original_shape)
+        #SR_img = super_resolustion(inpainting_img)
+        #result = merge(img_np4d, SR_img, mask_np4d)
+        #_img_preview = Image.fromarray(np.uint8(result*255)) 
         self.parent.parent.place_preview_img()
 
 
@@ -585,15 +563,6 @@ class ModificationTab(QWidget):
         operations.size = int(self.width_box.text()), int(self.height_box.text())
 
         self.parent.parent.update_img_size_lbl()
-        self.parent.parent.place_preview_img()
-
-    def matting_apply(self,e):
-        logger.debug("matting, to be continue...")
-
-        print("matting!")
-
-	
-
 
 class AdjustingTab(QWidget):
     """Adjusting tab widget"""
@@ -725,16 +694,9 @@ class FiltersTab(QWidget):
 
     def on_filter_select(self, filter_name, e):
         logger.debug(f"apply color filter: {filter_name}")
-
-        global _img_preview, _img_filter
-        if filter_name != "none":
-            _img_preview = img_helper.color_filter(_img_filter, filter_name)
-        else:
-            _img_preview = _img_filter.copy()
-
+        global _img_preview
         operations.color_filter = filter_name
         self.toggle_thumbs()
-
         self.parent.parent.place_preview_img()
 
     def toggle_thumbs(self):
@@ -848,7 +810,14 @@ class MainLayout(QVBoxLayout):
         self.addLayout(btn_layout)
 
     def place_preview_img(self):
-        img = _get_img_with_all_operations()
+
+        if not (operations.color_filter == None or operations.color_filter == 'none'):
+            img = _get_img_with_all_operations()
+            img = img_helper.color_filter(img, operations.color_filter)
+        else:
+            img = _get_img_with_all_operations()
+
+
         preview_pix = ImageQt.toqpixmap(img)
         self.img_lbl.setPixmap(preview_pix)
 
@@ -866,8 +835,12 @@ class MainLayout(QVBoxLayout):
 
         if new_img_path:
             logger.debug(f"save output image to {new_img_path}")
-
-            img = _get_img_with_all_operations()
+            if not (operations.color_filter == None or operations.color_filter == 'none'):
+                img = _get_img_with_all_operations()
+                img = img_helper.color_filter(img, operations.color_filter)
+            else:
+                img = _get_img_with_all_operations()
+            
             img.save(new_img_path)
 
     def on_upload(self):
@@ -906,7 +879,6 @@ class MainLayout(QVBoxLayout):
 
             global _img_preview
             _img_preview = _img_original.copy()
-            _img_filter = _img_preview
 
             for thumb in self.action_tabs.filters_tab.findChildren(QLabel):
                 if thumb.name != "none":
@@ -937,15 +909,19 @@ class MainLayout(QVBoxLayout):
 
         global _img_preview
         _img_preview = _img_original.copy()
-        _img_filter = _img_preview
+        global _bimap
+        _bimap = None
 
         operations.reset()
 
         self.action_tabs.filters_tab.toggle_thumbs()
         self.place_preview_img()
         self.action_tabs.adjustment_tab.reset_sliders()
-        self.action_tabs.modification_tab.set_boxes()
+        self.action_tabs.modification_tab.set_boxes() 
+        self.action_tabs.inpainting_tab.exemplar_btn.setEnabled(True)
+        self.action_tabs.inpainting_tab.ref_btn.setEnabled(True)
         self.action_tabs.seg_tab.seg_btn.setEnabled(True)
+        self.action_tabs.inpainting_tab.setEnabled(False)
         self.update_img_size_lbl()
 
 

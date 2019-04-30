@@ -7,7 +7,7 @@ from scipy.ndimage.filters import convolve
 
 
 class Inpainter():
-    def __init__(self, image, mask, patch_size=9, plot_progress=False):
+    def __init__(self, image, mask, patch_size=9, para_ratio = 1, plot_progress=False):
         self.image = image.astype('uint8')
         self.mask = mask.round().astype('uint8')
         
@@ -23,7 +23,7 @@ class Inpainter():
 
         self.patch_size = patch_size
         self.plot_progress = plot_progress
-
+        self.para_ratio = para_ratio
         # Non initialized attributes
         self.working_image = None
         self.working_mask = None
@@ -89,12 +89,9 @@ class Inpainter():
 
     def _initialize_attributes(self):
         """ Initialize the non initialized attributes
-
         The confidence is initially the inverse of the mask, that is, the
         target region is 0 and source region is 1.
-
         The data starts with zero for all pixels.
-
         The working image and working mask start as copies of the original
         image and mask.
         """
@@ -110,20 +107,17 @@ class Inpainter():
 
     def _find_front(self):
         """ Find the front using laplacian on the mask
-
         The laplacian will give us the edges of the mask, it will be positive
         at the higher region (white) and negative at the lower region (black).
         We only want the the white region, which is inside the mask, so we
         filter the negative values.
         """
         self.front = (laplace(self.working_mask) > 0).astype('uint8')
-        # TODO: check if scipy's laplace filter is faster than scikit's
 
     def _update_priority(self):
         self._update_confidence()
         self._update_data()
-        #self.priority = ((1*self.confidence + 10*self.data)/11) * self.front
-        self.priority = self.confidence * self.data * self.front
+        self.priority = ((self.para_ratio * self.confidence + 1 * self.data)/(1 + self.para_ratio)) * self.front
 
     def _update_confidence(self):
         new_confidence = np.copy(self.confidence)

@@ -60,7 +60,6 @@ def get_grad_operator(mask):
 def get_original_background(image, alpha):
     falpha = alpha.flatten()
     weights = falpha < 0.4
-    #weights = falpha
     background = weights[:, np.newaxis] * image.reshape((alpha.size, -1))
     return background
 
@@ -78,7 +77,7 @@ def get_const_conditions(image, alpha):
 
     mask = falpha < 1.0 - CONST_ALPHA_MARGIN
     right_hand = (weights * mask)[:, np.newaxis] * image.reshape((alpha.size, -1))
-    return conditions, right_hand
+    return conditions, right_hand, mask
 
 
 def solve_foreground_background(image, alpha):
@@ -104,8 +103,8 @@ def solve_foreground_background(image, alpha):
         __spdiagonal(1.0 - alpha.flatten())
     ))
 
-    const_conditions_f, b_const_f = get_const_conditions(image, 1.0 - alpha)
-    const_conditions_b, b_const_b = get_const_conditions(image, alpha)
+    const_conditions_f, b_const_f, _ = get_const_conditions(image, 1.0 - alpha)
+    const_conditions_b, b_const_b, mask = get_const_conditions(image, alpha)
 
     non_zero_conditions = scipy.sparse.vstack((
         composite_conditions,
@@ -134,7 +133,7 @@ def solve_foreground_background(image, alpha):
     solution = scipy.sparse.linalg.spsolve(left_hand, right_hand).reshape(2, *image.shape)
     foreground = solution[0, :, :, :].reshape(*image.shape)
     background = get_original_background(image,alpha).reshape(*image.shape)
-    return foreground, background
+    return foreground, background, mask
 
 
 def main():
