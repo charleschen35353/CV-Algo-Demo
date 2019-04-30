@@ -34,6 +34,7 @@ logger = logging.getLogger()
 # original img, can't be modified
 _img_original = None
 _img_preview = None
+_img_filter = None
 _bimap = None #2D, 0 be background 1 be foregrounds
 win = None
 
@@ -318,15 +319,16 @@ class SegTab(QWidget):
         np_img = np.array(img)
         mask = np.stack((bimap,)*3, axis=-1)
         seg_output = np_img * mask
-        global _img_preview
+        global _img_preview,_img_filter
         _img_preview = Image.fromarray(np.uint8(seg_output))#.resize((_img_original.width,_img_original.height))
+        _img_filter = _img_preview
         self.parent.parent.place_preview_img()
         logger.debug("Auto Segmentation")
 
 
     def matting_apply(self, event):  
         logger.debug("Matting")
-        global _img_original, _img_preview
+        global _img_original, _img_preview,_img_filter
         original_image = np.array(_img_original)/255.0
         preview_image = np.array(_img_preview)/255.0
 
@@ -336,6 +338,7 @@ class SegTab(QWidget):
         foreground, background = solve_foreground_background.solve_foreground_background(np.array(_img_original),alpha)
         alpha = alpha*255
         _img_preview = Image.fromarray(np.uint8(background))
+        _img_filter = _img_preview
         self.parent.parent.place_preview_img()
         '''
         for row in alpha:
@@ -723,11 +726,11 @@ class FiltersTab(QWidget):
     def on_filter_select(self, filter_name, e):
         logger.debug(f"apply color filter: {filter_name}")
 
-        global _img_preview
+        global _img_preview, _img_filter
         if filter_name != "none":
-            _img_preview = img_helper.color_filter(_img_original, filter_name)
+            _img_preview = img_helper.color_filter(_img_filter, filter_name)
         else:
-            _img_preview = _img_original.copy()
+            _img_preview = _img_filter.copy()
 
         operations.color_filter = filter_name
         self.toggle_thumbs()
@@ -903,6 +906,7 @@ class MainLayout(QVBoxLayout):
 
             global _img_preview
             _img_preview = _img_original.copy()
+            _img_filter = _img_preview
 
             for thumb in self.action_tabs.filters_tab.findChildren(QLabel):
                 if thumb.name != "none":
@@ -933,6 +937,7 @@ class MainLayout(QVBoxLayout):
 
         global _img_preview
         _img_preview = _img_original.copy()
+        _img_filter = _img_preview
 
         operations.reset()
 
