@@ -18,7 +18,9 @@ from scipy import misc
 import tensorflow as tf
 import get_dataset_colormap
 from inpainter import inpainter
+import threading
 import cv2
+import time
 
 
 LABEL_NAMES = np.asarray([
@@ -46,11 +48,11 @@ ROTATION_BTN_SIZE = (70, 30)
 THUMB_SIZE = 120
 
 SLIDER_MIN_VAL = -100
-SLIDER_MAX_VAL = 100
+SLIDER_MAX_VAL = 20
 SLIDER_DEF_VAL = 0
 
 PARA1_MIN_VAL = 5
-PARA1_MAX_VAL = 50
+PARA1_MAX_VAL = 20
 PARA1_DEF_VAL = 9
 
 PARA2_MIN_VAL = 1
@@ -83,8 +85,6 @@ class DeepInpaintingNet(object):
         assert(x.shape == mask.shape)
         x_in = np.expand_dims(cv2.resize(x.astype(np.float32),(256,256), interpolation=cv2.INTER_CUBIC),axis = 0 )/255
         mask_in =  np.expand_dims(cv2.resize(mask.astype(np.float32),(256,256)),axis = 0 )
-        #global _img_original
-        #_img_original = Image.fromarray(np.uint8(np.squeeze(mask_in)*255)) 
         result = self.sess.run(self.y, feed_dict={self.x:x_in, self.mask:mask_in})
         return result
 	
@@ -360,7 +360,7 @@ class SegTab(QWidget):
         self.parent.parent.place_preview_img()
         self.parent.inpainting_tab.setEnabled(True)
 
-
+        
 
         
 class InpaintingTab(QWidget):
@@ -440,10 +440,19 @@ class InpaintingTab(QWidget):
         global _img_preview
         img = _img_preview
         image = np.array(img)
-        bimap = _bimap 
-        output_image = inpainter.Inpainter(image, bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint()
-        _img_preview = Image.fromarray(np.uint8(output_image))       
-        self.parent.parent.place_preview_img()
+        bimap = _bimap
+        keep_going = True
+        output_image = None
+        output_mask= None
+        while keep_going:
+            output_image, output_mask ,keep_going = inpainter.Inpainter(image, 1-bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint(output_image, output_mask)
+            _img_preview = Image.fromarray(np.uint8(output_image))       
+            self.parent.parent.place_preview_img()
+        
+        reply = QMessageBox.question(self, "",
+                                         "Exemplar Inpainting Done!", QMessageBox.Ok, QMessageBox.Ok)
+        self.textbox.setText("")
+
 
     def on_para1_change(self):
         print(self.para1_slider.value())
@@ -820,6 +829,7 @@ class MainLayout(QVBoxLayout):
 
         preview_pix = ImageQt.toqpixmap(img)
         self.img_lbl.setPixmap(preview_pix)
+        print("Canvas Updated!!")
 
     def place_original_img(self):
         img = _img_original
