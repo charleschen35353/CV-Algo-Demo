@@ -32,7 +32,7 @@ class Inpainter():
         self.data = None
         self.priority = None
 
-    def inpaint(self):
+    def inpaint(self, working_image = None, working_mask = None):
         """ Compute the new image and return it """
 
         self._validate_inputs()
@@ -40,25 +40,27 @@ class Inpainter():
 
         start_time = time.time()
         keep_going = True
-        while keep_going:
-            self._find_front()
-            if self.plot_progress:
-                self._plot_image()
+        
+        if working_image is not None:
+            self.working_image = working_image
+            self.working_mask = working_mask
+        
+            
+        self._find_front()
 
-            self._update_priority()
+        self._update_priority()
 
-            target_pixel = self._find_highest_priority_pixel()
-            find_start_time = time.time()
-            source_patch = self._find_source_patch(target_pixel)
-            print('Time to find best: %f seconds'
+        target_pixel = self._find_highest_priority_pixel()
+        find_start_time = time.time()
+        source_patch = self._find_source_patch(target_pixel)
+        print('Time to find best: %f seconds'
                   % (time.time()-find_start_time))
 
-            self._update_image(target_pixel, source_patch)
-
-            keep_going = not self._finished()
+        self._update_image(target_pixel, source_patch)
+        keep_going = not self._finished()
 
         print('Took %f seconds to complete' % (time.time() - start_time))
-        return self.working_image
+        return self.working_image, self.working_mask ,keep_going
 
     def _validate_inputs(self):
 #        print self.image.shape
@@ -157,7 +159,6 @@ class Inpainter():
         return unit_normal
 
     def _calc_gradient_matrix(self):
-        # TODO: find a better method to calc the gradient
         height, width = self.working_image.shape[:2]
 
         grey_image = rgb2grey(self.working_image)
