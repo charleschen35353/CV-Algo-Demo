@@ -171,6 +171,7 @@ class Operations:
 
 #_seg_model = DeepLabModel()
 #_inpainting_net = DeepInpaintingNet()
+
 operations = Operations()
 
 

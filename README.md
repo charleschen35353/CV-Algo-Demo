@@ -2,13 +2,11 @@
 
 PyQt5>=5.8.2
 Pillow>=4.1.1 
-Numpy
-Scipy
+Numpy>=1.13.1
+scikit-image>=0.13.0
+scipy
 Tensorflow 1.9
 OpenCv-Python
-
-The applications is developed and test under Ubuntu 16.04.
-Modified from https://github.com/shkolovy/simple-photo-editor.
 
 
 # Pre-requitesites
@@ -42,6 +40,18 @@ To discard change, click on "Reset" button at the bottom of the main screen.
 To save edited image, click on "Save" button at the bottom of the main screen, and select save destination.
 
 To switch between processed and unprocessed image, a exclusive pair of buttons "original" and "processed" are provided at the bottom of the main screen. Click on each to show respective image on screen.
+
+
+
+
+The applications is developed and test under Ubuntu 16.04. 
+UI Modified from https://github.com/shkolovy/simple-photo-editor,
+Inpainting method reference: https://github.com/igorcmoura/inpaint-object-remover.
+Matting reference: 
+
+Report:
+https://docs.google.com/document/d/1w7mh_RMevam8_4sG7NepPqT6djI80_XxPobwni1H2y8/edit?usp=sharing
+
 
 
 # Authors
