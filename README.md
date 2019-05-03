@@ -46,7 +46,11 @@ To switch between processed and unprocessed image, a exclusive pair of buttons "
 
 # Authors
 Department of Computer Science and Engineering
+
 The Hong Kong University of Science and Technology
+
 CHEN, Charles Liang-yu
+
 ZENG, Kuang
+
 WANG, Wenlong
