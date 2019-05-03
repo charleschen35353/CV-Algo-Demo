@@ -169,8 +169,8 @@ class Operations:
                f"flip-left: {self.flip_left} flip-top: {self.flip_top} rotation: {self.rotation_angle}"
 
 
-_seg_model = DeepLabModel()
-_inpainting_net = DeepInpaintingNet()
+#_seg_model = DeepLabModel()
+#_inpainting_net = DeepInpaintingNet()
 operations = Operations()
 
 
@@ -353,7 +353,7 @@ class SegTab(QWidget):
         preview_image = np.array(_img_preview)/255.0
         global _bimap
         alpha = closed_form_matting.closed_form_matting_with_scribbles(original_image,preview_image)
-        foreground, background, _ = solve_foreground_background.solve_foreground_background(np.array(_img_original),alpha)
+        background= solve_foreground_background.get_original_background(np.array(_img_original),alpha)
         _bimap = (alpha <= 0.4).astype(int)
         print(_bimap.shape)
         _img_preview = Image.fromarray(np.uint8(background))

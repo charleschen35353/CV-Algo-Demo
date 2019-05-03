@@ -4,35 +4,6 @@ This module implements natural image matting method described in:
     Levin, Anat, Dani Lischinski, and Yair Weiss. "A closed-form solution to natural image matting."
     IEEE Transactions on Pattern Analysis and Machine Intelligence 30.2 (2008): 228-242.
 
-The code can be used in two ways:
-    1. By importing solve_foregound_background in your code:
-        ```
-            import closed_form_matting
-            ...
-            # For scribles input
-            alpha = closed_form_matting.closed_form_matting_with_scribbles(image, scribbles)
-
-            # For trimap input
-            alpha = closed_form_matting.closed_form_matting_with_trimap(image, trimap)
-
-            # For prior with confidence
-            alpha = closed_form_matting.closed_form_matting_with_prior(
-                image, prior, prior_confidence, optional_const_mask)
-
-            # To get Matting Laplacian for image
-            laplacian = compute_laplacian(image, optional_const_mask)
-        ```
-    2. From command line:
-        ```
-            # Scribbles input
-            ./closed_form_matting.py input_image.png -s scribbles_image.png  -o output_alpha.png
-
-            # Trimap input
-            ./closed_form_matting.py input_image.png -t scribbles_image.png  -o output_alpha.png
-
-            # Add flag --solve-fg to compute foreground color and output RGBA image instead
-            # of alpha.
-        ```
 """
 
 from __future__ import division
@@ -139,15 +110,6 @@ def closed_form_matting_with_prior(image, prior, prior_confidence, consts_map=No
     return alpha
 
 
-def closed_form_matting_with_trimap(image, trimap, trimap_confidence=100.0):
-    """Apply Closed-Form matting to given image using trimap."""
-
-    assert image.shape[:2] == trimap.shape, ('trimap must be 2D matrix with height and width equal '
-                                             'to image.')
-    consts_map = (trimap < 0.1) | (trimap > 0.9)
-    return closed_form_matting_with_prior(image, trimap, trimap_confidence * consts_map, consts_map)
-
-
 def closed_form_matting_with_scribbles(image, scribbles, scribbles_confidence=100.0):
     """Apply Closed-Form matting to given image using scribbles image."""
 
@@ -162,45 +124,6 @@ def closed_form_matting_with_scribbles(image, scribbles, scribbles_confidence=10
     )
 
 
-closed_form_matting = closed_form_matting_with_trimap
-
-def main():
-    import argparse
-
-    logging.basicConfig(level=logging.INFO)
-    arg_parser = argparse.ArgumentParser(description=__doc__)
-    arg_parser.add_argument('image', type=str, help='input image')
-
-    arg_parser.add_argument('-t', '--trimap', type=str, help='input trimap')
-    arg_parser.add_argument('-s', '--scribbles', type=str, help='input scribbles')
-    arg_parser.add_argument('-o', '--output', type=str, required=True, help='output image')
-    arg_parser.add_argument(
-        '--solve-fg', dest='solve_fg', action='store_true',
-        help='compute foreground color and output RGBA image'
-    )
-    args = arg_parser.parse_args()
-
-    image = cv2.imread(args.image, cv2.IMREAD_COLOR) / 255.0
-
-    if args.scribbles:
-        scribbles = cv2.imread(args.scribbles, cv2.IMREAD_COLOR) / 255.0
-        alpha = closed_form_matting_with_scribbles(image, scribbles)
-    elif args.trimap:
-        trimap = cv2.imread(args.trimap, cv2.IMREAD_GRAYSCALE) / 255.0
-        alpha = closed_form_matting_with_trimap(image, trimap)
-    else:
-        logging.error('Either trimap or scribbles must be specified.')
-        arg_parser.print_help()
-        exit(-1)
-
-    if args.solve_fg:
-        from solve_foreground_background import solve_foreground_background
-        foreground, _ = solve_foreground_background(image, alpha)
-        output = np.concatenate((foreground, alpha[:, :, np.newaxis]), axis=2)
-    else:
-        output = alpha
-
-    cv2.imwrite(args.output, output * 255.0)
 
 
 if __name__ == "__main__":
