@@ -37,6 +37,7 @@ logger = logging.getLogger()
 # original img, can't be modified
 _img_original = None
 _img_preview = None
+_stop_thread = False
 _bimap = None #2D, 0 be background 1 be foregrounds
 win = None
 
@@ -344,8 +345,10 @@ class SegTab(QWidget):
         self.parent.parent.place_preview_img()
         self.parent.inpainting_tab.setEnabled(True)
         self.parent.parent.parent.setEnabled(True)
-      
-
+        self.matting_btn.setEnabled(False)
+        self.matting_cbw.setEnabled(False)
+        self.matting_cbb.setEnabled(False)
+     
 
     def matting_apply(self, event):  
         self.matting_btn.setEnabled(False)
@@ -360,10 +363,40 @@ class SegTab(QWidget):
         _img_preview = Image.fromarray(np.uint8(background))
         self.parent.parent.place_preview_img()
         self.parent.inpainting_tab.setEnabled(True)
-
+        self.seg_btn.setEnabled(False)
+        self.matting_cbw.setEnabled(False)
+        self.matting_cbb.setEnabled(False)
         
-
         
+def update_img(main_layout, img_np):
+    global _img_preview
+    img = Image.fromarray(np.uint8(img_np))
+    _img_preview = img
+    main_layout.place_preview_img()
+    print("Thread done.")
+        
+def exm(tab):
+    global stop_thread 
+
+    global _img_preview
+    img = _img_preview
+    image = np.array(img)
+    bimap = _bimap
+    keep_going = True
+    output_image = None
+    output_mask= None
+     
+    while keep_going:
+        if stop_thread: 
+            break
+        output_image, output_mask, keep_going = inpainter.Inpainter(image, 1-bimap, tab.para1_slider.value(), tab.para2_slider.value()).inpaint(output_image, output_mask)  
+        update_img(tab.parent.parent, output_image)
+
+    reply = QMessageBox.question(tab, "", "Exemplar Inpainting Done!", QMessageBox.Ok, QMessageBox.Ok)
+    tab.parent.setEnabled(True)
+    tab.parent.adjustment_tab.setEnabled(True)
+    tab.parent.modification_tab.setEnabled(True)
+
 class InpaintingTab(QWidget):
     def __init__(self, parent):
         super().__init__()
@@ -436,25 +469,19 @@ class InpaintingTab(QWidget):
         self.para2_slider.setValue(PARA2_DEF_VAL)
 
     def exemplar_apply(self,event):
+
+        self.setEnabled(False)
+        self.parent.adjustment_tab.setEnabled(False)
+        self.parent.seg_tab.setEnabled(False)
+        self.parent.inpainting_tab.setEnabled(False)
+        self.parent.modification_tab.setEnabled(False)
         self.exemplar_btn.setEnabled(False)
         self.ref_btn.setEnabled(False)
-        global _img_preview
-        img = _img_preview
-        image = np.array(img)
-        bimap = _bimap
-        keep_going = True
-        output_image = None
-        output_mask= None
-        while keep_going:
-            output_image, output_mask ,keep_going = inpainter.Inpainter(image, 1-bimap, self.para1_slider.value(), self.para2_slider.value()).inpaint(output_image, output_mask)
-            _img_preview = Image.fromarray(np.uint8(output_image))       
-            self.parent.parent.place_preview_img()
+
+        t = threading.Thread(target = exm,  args = (self,) )
+        _stop_thread = False 
+        t.start()   
         
-        reply = QMessageBox.question(self, "",
-                                         "Exemplar Inpainting Done!", QMessageBox.Ok, QMessageBox.Ok)
-        self.textbox.setText("")
-
-
     def on_para1_change(self):
         print(self.para1_slider.value())
         self.para1_lbl.setText(str(self.para1_slider.value()))
@@ -471,11 +498,7 @@ class InpaintingTab(QWidget):
 
         original_shape = mask.shape 
         img = np.array(_img_preview)
-        print(_bimap.shape)
-        print(mask.shape)
-        print(img.shape)
         inpainted_img = _inpainting_net.run(img, mask)
-        print(inpainted_img.shape)
         inpainted_img = np.squeeze(inpainted_img)
         _img_preview = Image.fromarray(np.uint8(inpainted_img*255)) 
         #inpainting_img = inpainting_img.resize(original_shape)
@@ -483,6 +506,8 @@ class InpaintingTab(QWidget):
         #result = merge(img_np4d, SR_img, mask_np4d)
         #_img_preview = Image.fromarray(np.uint8(result*255)) 
         self.parent.parent.place_preview_img()
+        self.parent.seg_tab.setEnabled(False)
+        self.parent.inpainting_tab.setEnabled(False)
 
 
 class ModificationTab(QWidget):
@@ -830,6 +855,7 @@ class MainLayout(QVBoxLayout):
 
         preview_pix = ImageQt.toqpixmap(img)
         self.img_lbl.setPixmap(preview_pix)
+
         print("Canvas Updated!!")
 
     def place_original_img(self):
@@ -855,6 +881,7 @@ class MainLayout(QVBoxLayout):
             img.save(new_img_path)
 
     def on_upload(self):
+        _stop_thread = True
         logger.debug("upload")
         img_path, _ = QFileDialog.getOpenFileName(self.parent, "Open image",
                                                   "/Users",
@@ -903,6 +930,18 @@ class MainLayout(QVBoxLayout):
             self.reset_btn.setEnabled(True)
             self.save_btn.setEnabled(True)
             self.showOriginal_btn.setEnabled(True)
+
+            self.action_tabs.adjustment_tab.reset_sliders()
+            self.action_tabs.modification_tab.set_boxes() 
+            self.action_tabs.inpainting_tab.exemplar_btn.setEnabled(True)
+            self.action_tabs.inpainting_tab.ref_btn.setEnabled(True)
+            self.action_tabs.seg_tab.seg_btn.setEnabled(True)
+            self.action_tabs.seg_tab.setEnabled(True)
+            self.action_tabs.inpainting_tab.setEnabled(False)
+            self.action_tabs.seg_tab.matting_cbw.setEnabled(True)
+            self.action_tabs.seg_tab.matting_cbb.setEnabled(True)
+            self.update_img_size_lbl()
+
             self.action_tabs.modification_tab.set_boxes()
             global win
             win.setWindowTitle('ACH2 FYP process')
@@ -932,8 +971,13 @@ class MainLayout(QVBoxLayout):
         self.action_tabs.inpainting_tab.exemplar_btn.setEnabled(True)
         self.action_tabs.inpainting_tab.ref_btn.setEnabled(True)
         self.action_tabs.seg_tab.seg_btn.setEnabled(True)
+        self.action_tabs.seg_tab.setEnabled(True)
         self.action_tabs.inpainting_tab.setEnabled(False)
+        self.action_tabs.seg_tab.matting_cbw.setEnabled(True)
+        self.action_tabs.seg_tab.matting_cbb.setEnabled(True)
         self.update_img_size_lbl()
+        _stop_thread = True
+
 
 
     def on_showOriginal(self):
