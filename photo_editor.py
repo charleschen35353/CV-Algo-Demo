@@ -387,8 +387,6 @@ def exm(tab):
     output_mask= None
      
     while keep_going:
-        if stop_thread: 
-            break
         output_image, output_mask, keep_going = inpainter.Inpainter(image, 1-bimap, tab.para1_slider.value(), tab.para2_slider.value()).inpaint(output_image, output_mask)  
         update_img(tab.parent.parent, output_image)
 
