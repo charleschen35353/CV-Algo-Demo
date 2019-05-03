@@ -19,13 +19,13 @@ Please put .pb files in https://drive.google.com/drive/folders/1XUad0lEa1_4EwGJm
 
 run $python photo_editor.py 
 
-To start with, simply click on "upload" button.
+To start with, simply click on "upload" button at the bottom of the main screen.
 
-Once the image is uploaded, one can apply filters under "Filter" Tab.
+Once the image is uploaded, one can apply filters under "Filter" tab.
 
-One can resize images under "Modicfication" Tab.
+One can resize images under "Modicfication" tab.
 
-Once can adjust contrast, birghtness and sharpness under "Adjust" Tab.
+Once can adjust contrast, birghtness and sharpness under "Adjust" tab.
 
 To use segmentation, simply click on the "One-tap Segmentation button" under "Character Extraction" Tab. All foreground objects will be removed.
 
@@ -35,6 +35,18 @@ To apply inpainting, at least one operation on either "Segmentation" or "Image M
 
 Also, a quicker inpainting method is provided. One Can click on "Quick Inpainting" under "Inpainting" tab. An restored image will be shown soon.
 
-To change the image one wish to edit, click on "Upload" again and repeat the above steps.
+To change the image one wish to edit, click on "Upload" at the bottom of the main screen again and repeat the above steps.
 
-To discard change, click on "Reset" button.
+To discard change, click on "Reset" button at the bottom of the main screen.
+
+To save edited image, click on "Save" button at the bottom of the main screen, and select save destination.
+
+To switch between processed and unprocessed image, a exclusive pair of buttons "original" and "processed" are provided at the bottom of the main screen. Click on each to show respective image on screen.
+
+
+# Authors
+Department of Computer Science and Engineering
+The Hong Kong University of Science and Technology
+CHEN, Charles Liang-yu
+ZENG, Kuang
+WANG, Wenlong
