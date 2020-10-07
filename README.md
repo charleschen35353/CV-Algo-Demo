@@ -43,14 +43,7 @@ To switch between processed and unprocessed image, a exclusive pair of buttons "
 
 
 
-
-The applications is developed and test under Ubuntu 16.04. 
-UI Modified from https://github.com/shkolovy/simple-photo-editor,
-Inpainting method reference: https://github.com/igorcmoura/inpaint-object-remover.
-Matting reference: 
-
-Report:
-https://docs.google.com/document/d/1w7mh_RMevam8_4sG7NepPqT6djI80_XxPobwni1H2y8/edit?usp=sharing
+Presentation: https://docs.google.com/presentation/d/1HFO-mAnfNS87PbKmRItcSHPJwBQmwScqGNgwYEhjroQ/edit?usp=sharing
 
 
 
