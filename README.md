@@ -1,12 +1,12 @@
 # Requirements
 
-PyQt5>=5.8.2
-Pillow>=4.1.1 
-Numpy>=1.13.1
-scikit-image>=0.13.0
-scipy
-Tensorflow 1.9
-OpenCv-Python
+```PyQt5>=5.8.2```
+```Pillow>=4.1.1 ```
+```Numpy>=1.13.1```
+```scikit-image>=0.13.0```
+```scipy```
+```Tensorflow 1.9```
+```OpenCv-Python```
 
 
 # Pre-requitesites
@@ -15,7 +15,7 @@ Please put .pb files in https://drive.google.com/drive/folders/1XUad0lEa1_4EwGJm
 
 # User Guide
 
-run $python photo_editor.py 
+run ```$python photo_editor.py ```
 
 To start with, simply click on "upload" button at the bottom of the main screen.
 
